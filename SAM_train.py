@@ -86,7 +86,6 @@ def get_multiple_bounding_boxes(ground_truth_map):
     # Iterate over each detected object
     for region in measure.regionprops(labels):
         # Get coordinates
-        print(region)
         minr, minc, maxr, maxc = region.bbox
 
         # You can adjust coordinates here as needed
@@ -129,7 +128,7 @@ class SAMDataset(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        try:
+        # try:
             image_path = self.images[idx]
             mask_path = self.masks[idx]
             # Load image and mask
@@ -142,25 +141,35 @@ class SAMDataset(Dataset):
             # mask = read_image(mask_path).resize(1,256,256)
             ground_truth_mask = np.array(mask).squeeze()
 
+            boxed_masks = []
             # prompt = get_bounding_box(ground_truth_mask)
             prompt = get_multiple_bounding_boxes(ground_truth_mask)
+
             # prepare image and prompt for the model
+            for box in prompt:
+                minc, minr, maxc, maxr = box
+                # Create a copy of the image to modify
+                modified_mask = np.zeros(ground_truth_mask.shape)
+                modified_mask[minr:maxr, minc:maxc] = ground_truth_mask[minr:maxr, minc:maxc]
 
 
-
+                # Set pixels outside the bbox to black (0)
+                # modified_mask[~mask] = 0
+                boxed_masks.append(modified_mask)
+            boxed_masks = np.array(boxed_masks)
             inputs = self.processor(image, input_boxes=[prompt], return_tensors="pt")
             # remove batch dimension which the processor adds by default
             # add ground truth segmentation
             inputs = {k: v.squeeze(0) for k, v in inputs.items()}
-            inputs["ground_truth_mask"] = ground_truth_mask
+            inputs["ground_truth_mask"] = boxed_masks
             inputs["image"] = image
 
 
             return inputs
-        except Exception as e:
-            print(f"skipping broken image: {image_path}, {mask_path}: {e}")
-            idx = (idx + 1)%len(self)
-            return self.__getitem__(idx)
+        # except Exception as e:
+        #     print(f"skipping broken image: {image_path}, {mask_path}: {e}")
+        #     idx = (idx + 1)%len(self)
+        #     return self.__getitem__(idx)
 
 imgs = []
 masks = []
@@ -169,9 +178,11 @@ val_dataset = os.path.join(train_path, "val")
 
 
 train_imgs = find_files(train_dataset, "_img_")#[:int(len(train_dataset)/10)]
+random.shuffle(train_imgs)
 train_imgs = train_imgs[:int(len(train_imgs)/10)]
 train_masks = [x.replace("_img_", "_mask_") for x in train_imgs]
 val_imgs = find_files(val_dataset, "_img_")#[:int(len(val_dataset)/10)]
+random.shuffle(val_imgs)
 val_imgs = val_imgs[:int(len(val_imgs)/10)]
 val_masks = [x.replace("_img_", "_mask_") for x in val_imgs]
 
@@ -199,7 +210,7 @@ model_config = SamConfig.from_pretrained("facebook/sam-vit-base")
 # Create an instance of the model architecture with the loaded configuration
 model = SamModel(config=model_config)
 #Update the model by loading the weights from saved file.
-model.load_state_dict(torch.load("./model_epoch_6_batch_idx_0.pth"))
+model.load_state_dict(torch.load("./models/model_epoch_6_batch_idx_0.pth"))
 #
 # model = SamModel.from_pretrained("facebook/sam-vit-base")
 # make sure we only compute gradients for mask decoder
@@ -210,7 +221,7 @@ for name, param in model.named_parameters():
 
 # Initialize the optimizer and the loss function
 # optimizer = AdamW(model.mask_decoder.parameters(), lr=1e-6, weight_decay=1e-4)
-optimizer = Adam(model.mask_decoder.parameters(), lr=1e-4, weight_decay=0)
+optimizer = Adam(model.mask_decoder.parameters(), lr=1e-5, weight_decay=0)
 #Try DiceFocalLoss, FocalLoss, DiceCELoss
 seg_loss = monai.losses.DiceCELoss(sigmoid=True, squared_pred=True, reduction='mean')
 # TensorBoard writer
@@ -234,32 +245,34 @@ for epoch in range(num_epochs):
                       multimask_output=False)
         # compute loss
         ground_truth_masks = batch["ground_truth_mask"].float().to(device)
-        print(ground_truth_masks.shape, outputs.pred_masks.shape)
-        # predicted_masks = outputs.pred_masks.squeeze(1)
-        predicted_masks = outputs.pred_masks.squeeze()
-
-        gt_mask = Image.fromarray(255 * batch["ground_truth_mask"].detach().cpu().squeeze().numpy()).convert("L")
-        original = Image.fromarray(batch["image"].detach().cpu().squeeze().numpy().astype(np.uint8))
-        save_img = Image.fromarray(255 * torch.sigmoid(predicted_masks).detach().cpu().squeeze().numpy()).convert(
-            "L")
-        gt_mask.save(save_img_path + "/multiple_bbox_epoch_tenth" + str(epoch) + "_" + str(batch_idx) + "_gt.png")
-        original.save(save_img_path + "/multiple_bbox_epoch_tenth" + str(epoch) + "_" + str(batch_idx) + "_aog.png")
-        save_img.save(save_img_path + "/multiple_bbox_epoch_tenth" + str(epoch) + "_" + str(batch_idx) + "_pred.png")
-
-        loss = seg_loss(predicted_masks, ground_truth_masks.unsqueeze(1))
+        predicted_masks = outputs.pred_masks.squeeze(2)
+        loss = seg_loss(predicted_masks, ground_truth_masks)
         optimizer.zero_grad()
         loss.backward()
         # optimize
-        optimizer.step()
-        epoch_losses.append(loss.item())
-        writer.add_scalar('Loss/train', loss.item(), epoch * len(train_dataloader) + batch_idx)
-        if batch_idx %100 == 0:
-            gt_mask = Image.fromarray(255*batch["ground_truth_mask"][0].detach().cpu().squeeze().numpy()).convert("L")
-            original = Image.fromarray(batch["image"][0].detach().cpu().squeeze().numpy().astype(np.uint8))
-            save_img = Image.fromarray(255*torch.sigmoid(predicted_masks[0]).detach().cpu().squeeze().numpy()).convert("L")
-            gt_mask.save(save_img_path +"/multiple_bbox_epoch_tenth" + str(epoch) + "_"+ str(batch_idx) +"_gt.png")
-            original.save(save_img_path +"/multiple_bbox_epoch_tenth" + str(epoch) + "_"+ str(batch_idx) +"_aog.png")
-            save_img.save(save_img_path +"/multiple_bbox_epoch_tenth" + str(epoch) + "_" + str(batch_idx) +"_pred.png")
+
+        if batch_idx%100 == 0:
+            n_boxes = predicted_masks.shape[1]
+            save_pred_0 = predicted_masks[0]
+            save_mask_0 = ground_truth_masks[0]
+            final_save_arr = None
+            for i in range(n_boxes):
+                predicted_masks = 255*torch.sigmoid(save_pred_0[i]).detach().cpu()
+                ground_truth_masks = 255*save_mask_0[i].detach().cpu()
+
+                final_save = torch.hstack((ground_truth_masks, predicted_masks)).squeeze()
+                # print(final_save.shape)
+                if final_save_arr is None:
+                    final_save_arr = final_save
+                else:
+                    final_save_arr = torch.vstack((final_save_arr, final_save))
+
+            final_image = Image.fromarray(final_save_arr.numpy()).convert('L')
+            final_image.save(save_img_path +"/multiple_bbox_epoch_tenth" + str(epoch) + "_"+ str(batch_idx) +".png")
+            optimizer.step()
+            epoch_losses.append(loss.item())
+            writer.add_scalar('Loss/train', loss.item(), epoch * len(train_dataloader) + batch_idx)
+
         if batch_idx % validation_step == 0 and epoch !=0:
             with torch.no_grad():
                 model.eval()
@@ -277,9 +290,8 @@ for epoch in range(num_epochs):
                                     multimask_output=False)
 
                     # Compute loss
-                    predicted_masks = outputs.pred_masks.squeeze(1)
-                    val_loss = seg_loss(predicted_masks, ground_truth_masks.unsqueeze(1))
-
+                    predicted_masks = outputs.pred_masks.squeeze(2)
+                    val_loss = seg_loss(predicted_masks, ground_truth_masks)
                     # Accumulate the validation loss
                     val_losses.append(val_loss.item())
 
@@ -289,7 +301,7 @@ for epoch in range(num_epochs):
             model.train()
             print(f'batch_idx: {batch_idx}')
             print(f'Mean loss: {mean(epoch_losses)}')
-            torch.save(model.state_dict(), f'./tenth/multiple_bbox_epoch{epoch}.pth')
+            torch.save(model.state_dict(), f'./models/multiple_bbox_epoch{epoch}.pth')
 # Print epoch statistics
             print(f'batch_idx: {batch_idx}, Train Loss: {np.mean(epoch_losses)}, Val Loss: {np.mean(val_losses)}')
     # torch.save(model.state_dict(), f"./data/checkpoint_full_epoch_{epoch}.pth")
