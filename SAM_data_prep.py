@@ -30,18 +30,26 @@ from skimage.filters import gaussian
 
 
 
-train_path = "/home/phillip/Documents/35803/outputs_3"
+new_path = "/home/phillip/Documents/35803/outputs_1024"
+db_path = "/home/phillip/Documents/35803/outputs_3"
+patch_size = 1024
+step = 512
 
-patch_size = 256
-step = 128
+train_dataset_im = os.path.join(new_path, "train", "im")
+train_dataset_gt = os.path.join(new_path, "train", "gt")
+val_dataset_im = os.path.join(new_path, "val", "im")
+val_dataset_gt = os.path.join(new_path, "val", "gt")
+if not os.path.exists(train_dataset_im):
+    os.makedirs(train_dataset_im)
 
-train_dataset = os.path.join(train_path, "train")
-val_dataset = os.path.join(train_path, "val")
-if not os.path.exists(train_dataset):
-    os.makedirs(train_dataset)
+if not os.path.exists(val_dataset_im):
+    os.makedirs(val_dataset_im)
 
-if not os.path.exists(val_dataset):
-    os.makedirs(val_dataset)
+if not os.path.exists(train_dataset_gt):
+    os.makedirs(train_dataset_gt)
+
+if not os.path.exists(val_dataset_gt):
+    os.makedirs(val_dataset_gt)
 def find_files(directory, pattern):
     # List to store paths of matching files
     matching_files = []
@@ -59,23 +67,23 @@ def find_files(directory, pattern):
 
 
 Image.MAX_IMAGE_PIXELS = None  # Suppress the warning and remove the limit
-train_path_files = [x.split("/")[-1].split(".tif")[0] for x in find_files(train_path, ".tif") if "mask" not in x]
+db_files = [x.split("/")[-1].split(".tif")[0] for x in find_files(db_path, ".tif") if "mask" not in x]
 
 
 tifs = []
 masks = []
 img_dict = {}
 mask_dict = {}
-for file in train_path_files:
+for file in db_files:
     print(file)
     valid_indices = []
     # tif = tifffile.imread(os.path.join(train_path, file + ".tif"))
 
-    with Image.open(os.path.join(train_path, file + ".tif")) as img:
+    with Image.open(os.path.join(db_path, file + ".tif")) as img:
         new_size = (img.width - img.width%patch_size, img.height - img.height%patch_size)
         resized_tif = np.array(img.resize(new_size))
         # print(new_size)
-    with Image.open(os.path.join(train_path, "mask_" + file + ".tif")) as mask:
+    with Image.open(os.path.join(db_path, "mask_" + file + ".tif")) as mask:
         new_size = (mask.width - mask.width%patch_size, mask.height - mask.height%patch_size)
         resized_mask = np.array(mask.resize(new_size))
         # print(new_size)
@@ -102,16 +110,15 @@ for file in train_path_files:
             # print("NOT AN EMPTY MASK")
             patch_mask = patches_mask[i][j]
             # patch_mask[patch_mask > 0] = 255
-            patch_of_mask = Image.fromarray(patch_mask)
+            patch_of_mask = Image.fromarray(255*patch_mask)
             patch_of_img = Image.fromarray(patches_img[i][j])
-            print(train_dataset + "/" + file + "_%s_mask_.png" %str(counter))
-            if random.random() < .7:
-                patch_of_mask.save(train_dataset + "/" + file + "_%s_mask_.png" %str(counter))
-                patch_of_img.save(train_dataset + "/" + file + "_%s_img_.png" %str(counter))
+            print(train_dataset_gt + "/" + file + "_%s_mask_.png" %str(counter))
+            if random.random() < .8:
+                patch_of_mask.save(train_dataset_gt + "/" + file + "_%s.png" %str(counter))
+                patch_of_img.save(train_dataset_im + "/" + file + "_%s.jpg" %str(counter))
             else:
-                patch_of_mask.save(val_dataset + "/" + file + "_%s_mask_.png" %str(counter))
-                patch_of_img.save(val_dataset + "/" + file + "_%s_img_.png"%str(counter))
-            print(train_dataset + "/" + file + "_%s_mask_.png" %str(counter))
+                patch_of_mask.save(val_dataset_gt + "/" + file + "_%s.png" %str(counter))
+                patch_of_img.save(val_dataset_im + "/" + file + "_%s.jpg" %str(counter))
 
             counter+=1
     # exit()

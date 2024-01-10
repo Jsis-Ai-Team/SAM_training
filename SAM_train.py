@@ -34,7 +34,7 @@ from skimage.filters import gaussian
 
 #Training loop
 num_epochs = 1000
-validation_step = 100000
+validation_step = 1000000
 train_path = "/home/phillip/Documents/35803/outputs_3"
 save_img_path = "./runs/saved_images"
 if not os.path.exists(save_img_path):
@@ -128,7 +128,7 @@ class SAMDataset(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        # try:
+        try:
             image_path = self.images[idx]
             mask_path = self.masks[idx]
             # Load image and mask
@@ -166,10 +166,10 @@ class SAMDataset(Dataset):
 
 
             return inputs
-        # except Exception as e:
-        #     print(f"skipping broken image: {image_path}, {mask_path}: {e}")
-        #     idx = (idx + 1)%len(self)
-        #     return self.__getitem__(idx)
+        except Exception as e:
+            print(f"skipping broken image: {image_path}, {mask_path}: {e}")
+            idx = (idx + 1)%len(self)
+            return self.__getitem__(idx)
 
 imgs = []
 masks = []
@@ -179,11 +179,11 @@ val_dataset = os.path.join(train_path, "val")
 
 train_imgs = find_files(train_dataset, "_img_")#[:int(len(train_dataset)/10)]
 random.shuffle(train_imgs)
-train_imgs = train_imgs[:int(len(train_imgs)/10)]
+train_imgs = train_imgs#[:int(len(train_imgs)/10)]
 train_masks = [x.replace("_img_", "_mask_") for x in train_imgs]
 val_imgs = find_files(val_dataset, "_img_")#[:int(len(val_dataset)/10)]
 random.shuffle(val_imgs)
-val_imgs = val_imgs[:int(len(val_imgs)/10)]
+val_imgs = val_imgs[:int(len(train_imgs)*.25)]
 val_masks = [x.replace("_img_", "_mask_") for x in val_imgs]
 
 print(len(train_imgs))
@@ -210,7 +210,7 @@ model_config = SamConfig.from_pretrained("facebook/sam-vit-base")
 # Create an instance of the model architecture with the loaded configuration
 model = SamModel(config=model_config)
 #Update the model by loading the weights from saved file.
-model.load_state_dict(torch.load("./models/model_epoch_6_batch_idx_0.pth"))
+model.load_state_dict(torch.load("./models/multiple_bbox_epoch3.pth"))
 #
 # model = SamModel.from_pretrained("facebook/sam-vit-base")
 # make sure we only compute gradients for mask decoder
@@ -240,6 +240,7 @@ for epoch in range(num_epochs):
     for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}")):
         # forward pass
 
+        optimizer.zero_grad()
         outputs = model(pixel_values=batch["pixel_values"].to(device),
                       input_boxes=batch["input_boxes"].to(device),
                       multimask_output=False)
@@ -247,8 +248,10 @@ for epoch in range(num_epochs):
         ground_truth_masks = batch["ground_truth_mask"].float().to(device)
         predicted_masks = outputs.pred_masks.squeeze(2)
         loss = seg_loss(predicted_masks, ground_truth_masks)
-        optimizer.zero_grad()
+
         loss.backward()
+        optimizer.step()
+        writer.add_scalar('Loss/train', loss.item(), epoch * len(train_dataloader) + batch_idx)
         # optimize
 
         if batch_idx%100 == 0:
@@ -270,9 +273,7 @@ for epoch in range(num_epochs):
 
             final_image = Image.fromarray(final_save_arr.numpy()).convert('L')
             final_image.save(save_img_path +"/multiple_bbox_epoch_tenth" + str(epoch) + "_"+ str(batch_idx) +".png")
-            optimizer.step()
             epoch_losses.append(loss.item())
-            writer.add_scalar('Loss/train', loss.item(), epoch * len(train_dataloader) + batch_idx)
 
         if batch_idx % validation_step == 0 and epoch !=0:
             with torch.no_grad():
