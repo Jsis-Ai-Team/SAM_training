@@ -260,6 +260,7 @@ for epoch in range(num_epochs):
                 predicted_masks = 255*torch.sigmoid(save_pred_0[i]).detach().cpu()
                 ground_truth_masks = 255*save_mask_0[i].detach().cpu()
 
+
                 final_save = torch.hstack((ground_truth_masks, predicted_masks)).squeeze()
                 # print(final_save.shape)
                 if final_save_arr is None:
