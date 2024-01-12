@@ -4,8 +4,9 @@ import glob
 import rasterio
 from rasterio.plot import show
 from rasterio.features import rasterize
-train_path = "/home/phillip/Documents/35803/outputs_3"
-
+# input_path = "/home/phillip-4090/Documents/globalmapper_output"
+input_path = "/home/phillip-4090/Music"
+output_path = "/home/phillip-4090/Documents/shp_to_tif_output"
 
 def find_files(directory, pattern):
     # List to store paths of matching files
@@ -25,14 +26,14 @@ def find_files(directory, pattern):
 
 
 
-
-train_path_files = [x.split("/")[-1].split(".tif")[0] for x in find_files(train_path, ".tif")]
+print(find_files(input_path, ".tif"))
+train_path_files = [x.split("/")[-1].split(".tif")[0] for x in find_files(input_path, ".tif")]
 
 print(train_path_files)
 # exit()
 for file in train_path_files:
-    shapefile = gpd.read_file(os.path.join(train_path, file + ".shp"))
-    raster = rasterio.open(os.path.join(train_path, file + ".tif"))
+    shapefile = gpd.read_file(os.path.join(input_path, file.replace("img", "mask") + ".shp"))
+    raster = rasterio.open(os.path.join(input_path, file + ".tif"))
 
 # shapefile = gpd.read_file(os.path.join(train_path, "o_35803013.shp"))
 # raster = rasterio.open(os.path.join(train_path, "o_35803013.tif"))
@@ -52,7 +53,6 @@ for file in train_path_files:
 # plt.show()
 
 # To save the mask
-    with rasterio.open(os.path.join(train_path, 'mask_' +  file + ".tif"), 'w', driver='GTiff', height=mask.shape[0], width=mask.shape[1], count=1, dtype=mask.dtype, crs=raster.crs, transform=transform) as dst:
+    with rasterio.open(os.path.join(output_path, 'mask_' +  file + ".tif"), 'w', driver='GTiff', height=mask.shape[0], width=mask.shape[1], count=1, dtype=mask.dtype, crs=raster.crs, transform=transform) as dst:
         dst.write(mask, 1)
-
 

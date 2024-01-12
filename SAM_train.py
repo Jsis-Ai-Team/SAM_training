@@ -35,7 +35,7 @@ from skimage.filters import gaussian
 #Training loop
 num_epochs = 1000
 validation_step = 1000000
-train_path = "/home/phillip/Documents/35803/outputs_3"
+train_path = "/home/phillip-4090/Documents/outputs_256"
 save_img_path = "./runs/saved_images"
 if not os.path.exists(save_img_path):
     os.makedirs(save_img_path)
@@ -128,9 +128,14 @@ class SAMDataset(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
+            # print(idx)
+            # exit()
         try:
+            # print(self.masks)
             image_path = self.images[idx]
             mask_path = self.masks[idx]
+            # print(image_path, mask_path, "REEEEEEEE")
+            # exit()
             # Load image and mask
             image = Image.open(image_path)
             # image = Image.open(image_path).resize((256,256))
@@ -167,7 +172,7 @@ class SAMDataset(Dataset):
 
             return inputs
         except Exception as e:
-            print(f"skipping broken image: {image_path}, {mask_path}: {e}")
+            print(f"skipping broken image: {e}")
             idx = (idx + 1)%len(self)
             return self.__getitem__(idx)
 
@@ -176,15 +181,35 @@ masks = []
 train_dataset = os.path.join(train_path, "train")
 val_dataset = os.path.join(train_path, "val")
 
+train_imgs_files = os.path.join(train_path, "train", "im")
+train_gt_files = os.path.join(train_path, "train", "gt")
 
-train_imgs = find_files(train_dataset, "_img_")#[:int(len(train_dataset)/10)]
-random.shuffle(train_imgs)
-train_imgs = train_imgs#[:int(len(train_imgs)/10)]
-train_masks = [x.replace("_img_", "_mask_") for x in train_imgs]
-val_imgs = find_files(val_dataset, "_img_")#[:int(len(val_dataset)/10)]
-random.shuffle(val_imgs)
-val_imgs = val_imgs[:int(len(train_imgs)*.25)]
-val_masks = [x.replace("_img_", "_mask_") for x in val_imgs]
+val_imgs_files = os.path.join(train_path, "val", "im")
+val_gt_files = os.path.join(train_path, "val", "gt")
+
+print(train_imgs_files)
+# print(train_gt_files)
+# print(val_imgs_files)
+# print(val_gt_files)
+
+
+train_imgs = find_files(train_imgs_files, ".jpg")
+
+# print(train_imgs)
+# exit()
+train_masks = [x.replace("/im/", "/gt/").replace(".jpg", ".png") for x in find_files(train_imgs_files, ".jpg")]
+# find_files(train_gt_files, ".png")#[:int(len(train_dataset)/10)]
+# random.shuffle(train_imgs)
+# train_imgs = train_imgs#[:int(len(train_imgs)/10)]
+# train_masks = [x.replace("img_", "mask_img_") for x in train_imgs]
+val_imgs = find_files(val_imgs_files, ".jpg")#[:int(len(val_dataset)/10)]
+val_masks = [x.replace("/im/", "/gt/").replace(".jpg", ".png") for x in find_files(val_imgs_files, ".jpg")]
+    
+    
+    #[:int(len(val_dataset)/10)]
+# random.shuffle(val_imgs)
+# val_imgs = val_imgs[:int(len(train_imgs)*.25)]
+# val_masks = [x.replace("img_", "mask_") for x in val_imgs]
 
 print(len(train_imgs))
 print(len(val_imgs))
@@ -205,12 +230,17 @@ val_dataloader = DataLoader(sam_val_dataset, batch_size=1, shuffle=True, drop_la
 
 
 # Load the model
-model_config = SamConfig.from_pretrained("facebook/sam-vit-base")
+model = SamModel.from_pretrained("facebook/sam-vit-base")
+# model_config = SamConfig.from_pretrained("facebook/sam-vit-base")
+# model = SamModel(config=model_config)
+# model.load_state_dict(torch.load("./models/multiple_bbox_epoch3.pth"))
+
+
 
 # Create an instance of the model architecture with the loaded configuration
-model = SamModel(config=model_config)
 #Update the model by loading the weights from saved file.
-model.load_state_dict(torch.load("./models/multiple_bbox_epoch3.pth"))
+
+# model.load_state_dict(torch.load("./models/multiple_bbox_epoch3.pth"))
 #
 # model = SamModel.from_pretrained("facebook/sam-vit-base")
 # make sure we only compute gradients for mask decoder
